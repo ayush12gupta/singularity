@@ -8,7 +8,7 @@ import torch.distributed as dist
 
 from utils.basic_utils import MetricLogger
 from utils.distributed import get_rank, get_world_size
-
+from utils.logger import plot_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,68 @@ def cross_encoder_evaluation(model, data_loader, tokenizer, device, config):
 
     return i2t_scores_x.cpu().numpy(), t2i_scores_x.cpu().numpy(), \
         i2t_scores.cpu().numpy(), t2i_scores.cpu().numpy()
+
+
+@torch.no_grad()
+def validation(model, data_loader, tokenizer, device, config, log_nm):
+    model.eval()
+
+    metric_logger = MetricLogger(delimiter="  ")
+    header = "Evaluation:"
+    dtype = torch.half if config.fp16 else torch.float
+    media_type = data_loader.dataset.media_type
+    # this computes all features in each GPU
+    texts = data_loader.dataset.text
+    max_txt_l = config.max_txt_l
+    if not isinstance(max_txt_l, int):
+        max_txt_l = max_txt_l[media_type]
+    text_feats, text_atts = extract_text_feats(
+        texts, max_txt_l, tokenizer, model, device)  # (bsz, Lt, d), (bsz, Lt)
+
+    text_encoder = model.get_text_encoder()
+    iterator = metric_logger.log_every(data_loader, 200, header)
+    n_clip_per_video = 1 #image_feats.shape[1]  # generate score for each clip, and aggregate all clip scores for a video
+    # logger.info(f"n_clip_per_video={n_clip_per_video}, with eval_frame_ensemble={config.eval_frame_ensemble}")
+    zscores = []
+    oscores = []
+    N = len(texts)
+    bsz = config.batch_size[media_type]
+    for i, image in enumerate(iterator):
+        image, img_id = image
+        image = image.to(device, non_blocking=True)
+        shift = np.random.uniform(low=0, high=1, size=(img_id.size()[0],))
+        shift[shift<0.5] = 0
+        label = shift.copy()
+        label[label>=0.5] = 1
+        shift[shift>=0.5] = np.random.randint(1,100,len(shift[shift>=0.5]))
+        label = torch.tensor(label)
+        shift = torch.tensor(shift).long()
+
+        for clip_idx in range(n_clip_per_video):
+            image_feats, pooled_image_feat = model.encode_image(image)   # (bsz, #frm*L, d), (bsz, #frm, d)
+            image_feats = image_feats.unsqueeze(1)  # (bsz, 1, #frm*L, d)
+            encoder_output = image_feats[:, clip_idx].to(device, non_blocking=True) \
+                if config.eval_offload else image_feats[:, clip_idx]  # (bsz, #frm*Li, d)
+            encoder_att = torch.ones(
+                encoder_output.size()[:-1], dtype=torch.long
+            ).to(device, non_blocking=True)
+
+            output = text_encoder(
+                encoder_embeds=text_feats[(img_id+shift)%N],
+                attention_mask=text_atts[(img_id+shift)%N],
+                encoder_hidden_states=encoder_output,
+                encoder_attention_mask=encoder_att,
+                return_dict=True,
+                mode="fusion"
+            )
+            itm_embeds = output.last_hidden_state[:, 0]
+            score = model.itm_head(itm_embeds)[:, 1]
+            score = torch.sigmoid(score)
+
+            oscores.extend(np.array(score[label==1].detach().cpu()))
+            zscores.extend(np.array(score[label==0].detach().cpu()))
+    fig = plot_similarity(oscores, zscores, log_nm)
+    return fig
 
 
 @torch.no_grad()

@@ -18,7 +18,7 @@ from utils.config_utils import setup_main
 from utils.basic_utils import MetricLogger, SmoothedValue, setup_seed
 from utils.distributed import get_rank, is_main_process
 from dataset import MetaLoader
-from tasks.retrieval_utils import evaluation_wrapper
+from tasks.retrieval_utils import evaluation_wrapper, validation
 from tasks.shared_utils import setup_model
 from omegaconf import OmegaConf
 import copy
@@ -98,6 +98,7 @@ def train(model, train_loaders, optimizer, tokenizer, epoch, global_step,
 def main(config):
     if is_main_process() and config.wandb.enable:
         run = setup_wandb(config)
+        os.mkdir("logging")
 
     logger.info(f"config: \n{config}")
     logger.info(f"train_file: {config.train_file}")
@@ -140,43 +141,45 @@ def main(config):
                 if test_name not in config.test_types:
                     logger.info(f"Skip eval {test_name} split. All test_types {config.test_types}")
                     continue
-                res = evaluation_wrapper(
-                    model_without_ddp, test_loader, tokenizer, device, config, prefix=test_name)
-                eval_res.update(res)
+                # res = evaluation_wrapper(
+                #     model_without_ddp, test_loader, tokenizer, device, config, prefix=test_name)
+                fig = validation(model_without_ddp, test_loader, tokenizer, device, config, prefix=test_name)
+                wandb.log({"train/sim_score": fig})
+                # eval_res.update(res)
 
-        if is_main_process():
-            if config.wandb.enable:
-                for p, v in eval_res.items():
-                    log_dict_to_wandb(v, step=global_step, prefix=p)
+        # if is_main_process():
+        #     if config.wandb.enable:
+        #         for p, v in eval_res.items():
+        #             log_dict_to_wandb(v, step=global_step, prefix=p)
 
-            if config.stop_key is not None and config.stop_key in eval_res:
-                cur_r_mean = eval_res[config.stop_key]["r_mean"]
-            else:  # None
-                cur_r_mean = best + 1  # save the last as the best
-            eval_res = pd.DataFrame(eval_res)
-            logger.info(f"Epoch {epoch}")
-            logger.info(f"\n{eval_res.transpose()}")
+        #     if config.stop_key is not None and config.stop_key in eval_res:
+        #         cur_r_mean = eval_res[config.stop_key]["r_mean"]
+        #     else:  # None
+        #         cur_r_mean = best + 1  # save the last as the best
+        #     eval_res = pd.DataFrame(eval_res)
+        #     logger.info(f"Epoch {epoch}")
+        #     logger.info(f"\n{eval_res.transpose()}")
             
-            eval_res.to_json(join(config.output_dir, "eval_res_latest.json"))
+        #     eval_res.to_json(join(config.output_dir, "eval_res_latest.json"))
 
-            if not config.evaluate and cur_r_mean > best:
-                save_obj = {
-                    "model": model_without_ddp.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                    "scaler": scaler.state_dict(),
-                    "config": config,
-                    "epoch": epoch,
-                    "global_step": global_step,
-                }
-                eval_file = "eval_res_best.json"
-                eval_res.to_json(join(config.output_dir, eval_file))
-                torch.save(save_obj, join(config.output_dir, "ckpt_best.pth"))
-                best = cur_r_mean
-                best_epoch = epoch
-            if config.evaluate:
-                eval_file = "eval_res.json"
-                eval_res.to_json(join(config.output_dir, eval_file))
+        #     if not config.evaluate and cur_r_mean > best:
+        #         save_obj = {
+        #             "model": model_without_ddp.state_dict(),
+        #             "optimizer": optimizer.state_dict(),
+        #             "scheduler": scheduler.state_dict(),
+        #             "scaler": scaler.state_dict(),
+        #             "config": config,
+        #             "epoch": epoch,
+        #             "global_step": global_step,
+        #         }
+        #         eval_file = "eval_res_best.json"
+        #         eval_res.to_json(join(config.output_dir, eval_file))
+        #         torch.save(save_obj, join(config.output_dir, "ckpt_best.pth"))
+        #         best = cur_r_mean
+        #         best_epoch = epoch
+        #     if config.evaluate:
+        #         eval_file = "eval_res.json"
+        #         eval_res.to_json(join(config.output_dir, eval_file))
 
         if config.evaluate or config.debug:
             break

@@ -8,10 +8,22 @@ import sys
 import time
 import wandb
 from typing import Any, Dict, Union
+import matplotlib.pyplot as plt
 
 import torch
 from .distributed import get_rank, is_main_process
 from termcolor import colored
+
+
+def plot_similarity(ones, zeros, fn):
+    """Saving similarity plot for logging"""
+    fig, ax = plt.subplots(figsize =(10, 7))
+    fig.suptitle('Singularity Validation    Num Frames: 8', fontsize=16)
+    ax.hist([zeros, ones], range=[0, 1], bins = 20, label=['False Samples', 'True Sample'])
+    ax.legend()
+    ax.set_xlabel('Similarity Scores')
+    plt.savefig(fn, transparent=False)
+    return fig
 
 
 def log_dict_to_wandb(log_dict, step, prefix=""):
