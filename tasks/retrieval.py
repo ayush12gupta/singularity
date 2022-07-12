@@ -143,8 +143,8 @@ def main(config):
                     continue
                 # res = evaluation_wrapper(
                 #     model_without_ddp, test_loader, tokenizer, device, config, prefix=test_name)
-                fig = validation(model_without_ddp, test_loader, tokenizer, device, config, prefix=test_name)
-                wandb.log({"train/sim_score": fig})
+                fig = validation(model_without_ddp, test_loader, tokenizer, device, config, f"logging/sim_scores_{epoch}.png")
+                wandb.log({"train/sim_score": wandb.Image(f"logging/sim_scores_{epoch}.png")})
                 # eval_res.update(res)
 
         # if is_main_process():

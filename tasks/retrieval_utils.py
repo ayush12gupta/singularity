@@ -197,9 +197,10 @@ def validation(model, data_loader, tokenizer, device, config, log_nm):
         image = image.to(device, non_blocking=True)
         shift = np.random.uniform(low=0, high=1, size=(img_id.size()[0],))
         shift[shift<0.5] = 0
-        label = shift.copy()
-        label[label>=0.5] = 1
         shift[shift>=0.5] = np.random.randint(1,100,len(shift[shift>=0.5]))
+        label = shift.copy()
+        label[label==0] = 1
+        label[shift>=0.5] = 0
         label = torch.tensor(label)
         shift = torch.tensor(shift).long()
 
@@ -226,7 +227,7 @@ def validation(model, data_loader, tokenizer, device, config, log_nm):
 
             oscores.extend(np.array(score[label==1].detach().cpu()))
             zscores.extend(np.array(score[label==0].detach().cpu()))
-    fig = plot_similarity(oscores, zscores, log_nm)
+    fig = plot_similarity(oscores, zscores, log_nm, model.temp)
     return fig
 
 

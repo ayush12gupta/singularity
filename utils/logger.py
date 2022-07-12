@@ -15,10 +15,10 @@ from .distributed import get_rank, is_main_process
 from termcolor import colored
 
 
-def plot_similarity(ones, zeros, fn):
+def plot_similarity(ones, zeros, fn, temp):
     """Saving similarity plot for logging"""
     fig, ax = plt.subplots(figsize =(10, 7))
-    fig.suptitle('Singularity Validation    Num Frames: 8', fontsize=16)
+    fig.suptitle('Singularity Validation    Temp Parameter: ' + str(temp), fontsize=16)
     ax.hist([zeros, ones], range=[0, 1], bins = 20, label=['False Samples', 'True Sample'])
     ax.legend()
     ax.set_xlabel('Similarity Scores')
